@@ -1,4 +1,5 @@
 import os
+import asyncio
 import sqlite3
 from datetime import datetime, timedelta
 from telegram import Update
@@ -190,9 +191,12 @@ def main():
     app.add_handler(CommandHandler("week", week_command))
     app.add_handler(CommandHandler("month", month_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     print("Бот запущен...")
     app.run_polling()
+    
+
 
 if __name__ == "__main__":
     main()
