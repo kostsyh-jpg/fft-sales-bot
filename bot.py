@@ -55,9 +55,24 @@ def add_sale(product_name, qty, revenue, cost, tax, profit):
     conn = sqlite3.connect("sales.db")
     c = conn.cursor()
     c.execute("INSERT INTO sales (product_name, qty, revenue, cost, tax, profit, date) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              (product_name, qty, revenue, cost, tax, profit, datetime.now().strftime("%Y-%m-%d %H:%M")))
+              (product_name.lower(), qty, revenue, cost, tax, profit, datetime.now().strftime("%Y-%m-%d %H:%M")))
     conn.commit()
     conn.close()
+
+
+def undo_last_sale():
+    conn = sqlite3.connect("sales.db")
+    c = conn.cursor()
+    c.execute("SELECT id, product_name, qty, revenue, profit, date FROM sales ORDER BY id DESC LIMIT 1")
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return None
+    sale_id, product_name, qty, revenue, profit, date = row
+    c.execute("DELETE FROM sales WHERE id = ?", (sale_id,))
+    conn.commit()
+    conn.close()
+    return (product_name, qty, revenue, profit, date)
 
 
 def get_stats(days=None):
@@ -66,11 +81,51 @@ def get_stats(days=None):
     if days:
         date_from = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         c.execute("SELECT SUM(qty), SUM(revenue), SUM(tax), SUM(profit) FROM sales WHERE date >= ?", (date_from,))
+        summary = c.fetchone()
+        c.execute("""
+            SELECT product_name, SUM(qty), SUM(revenue), SUM(profit)
+            FROM sales
+            WHERE date >= ?
+            GROUP BY product_name
+            ORDER BY SUM(profit) DESC
+        """, (date_from,))
     else:
         c.execute("SELECT SUM(qty), SUM(revenue), SUM(tax), SUM(profit) FROM sales")
-    row = c.fetchone()
+        summary = c.fetchone()
+        c.execute("""
+            SELECT product_name, SUM(qty), SUM(revenue), SUM(profit)
+            FROM sales
+            GROUP BY product_name
+            ORDER BY SUM(profit) DESC
+        """)
+    by_product = c.fetchall()
     conn.close()
-    return row
+    return summary, by_product
+
+
+def format_stats_text(title, empty_text, days=None):
+    summary, by_product = get_stats(days)
+    if not summary or summary[0] is None:
+        return empty_text
+
+    qty, revenue, tax, profit = summary
+    text = (
+        f"{title}:\n\n"
+        f"Продано штук: {int(qty)}\n"
+        f"Выручка: {revenue:.0f} ₽\n"
+        f"Налог 6%: {tax:.0f} ₽\n"
+        f"Чистая прибыль: {profit:.0f} ₽"
+    )
+
+    if by_product:
+        text += "\n\nПо товарам:\n"
+        for prod_name, prod_qty, prod_rev, prod_profit in by_product:
+            text += (
+                f"• {prod_name.capitalize()} — {int(prod_qty)} шт "
+                f"({prod_rev:.0f} ₽, прибыль {prod_profit:.0f} ₽)\n"
+            )
+
+    return text.rstrip()
 
 
 # --- Команды ---
@@ -81,7 +136,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/add Название себестоимость цена — добавить товар\n"
         "Пример: /add Томаситко 180 950\n\n"
         "+ Название — зафиксировать продажу 1 шт\n"
-        "+ Название 2 — продать 2 штуки\n\n"
+        "+ Название 2 — продать 2 штуки\n"
+        "/undo — отменить последнюю продажу\n\n"
         "/stats — статистика за всё время\n"
         "/week — за 7 дней\n"
         "/month — за 30 дней\n"
@@ -120,51 +176,33 @@ async def products_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    row = get_stats()
-    if not row or row[0] is None:
-        await update.message.reply_text("Продаж пока нет")
+async def undo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    removed = undo_last_sale()
+    if not removed:
+        await update.message.reply_text("Отменять нечего — записей о продажах нет.")
         return
-    qty, revenue, tax, profit = row
-    text = (
-        f"Статистика за всё время:\n\n"
-        f"Продано штук: {int(qty)}\n"
-        f"Выручка: {revenue:.0f} ₽\n"
-        f"Налог 6%: {tax:.0f} ₽\n"
-        f"Чистая прибыль: {profit:.0f} ₽"
+    product_name, qty, revenue, profit, date = removed
+    await update.message.reply_text(
+        f"Последняя продажа отменена:\n\n"
+        f"• {product_name.capitalize()} × {int(qty)}\n"
+        f"• Выручка: {revenue:.0f} ₽\n"
+        f"• Прибыль: {profit:.0f} ₽\n"
+        f"• Время: {date}"
     )
+
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = format_stats_text("Статистика за всё время", "Продаж пока нет")
     await update.message.reply_text(text)
 
 
 async def week_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    row = get_stats(7)
-    if not row or row[0] is None:
-        await update.message.reply_text("За последние 7 дней продаж нет")
-        return
-    qty, revenue, tax, profit = row
-    text = (
-        f"За последние 7 дней:\n\n"
-        f"Продано штук: {int(qty)}\n"
-        f"Выручка: {revenue:.0f} ₽\n"
-        f"Налог 6%: {tax:.0f} ₽\n"
-        f"Чистая прибыль: {profit:.0f} ₽"
-    )
+    text = format_stats_text("За последние 7 дней", "За последние 7 дней продаж нет", days=7)
     await update.message.reply_text(text)
 
 
 async def month_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    row = get_stats(30)
-    if not row or row[0] is None:
-        await update.message.reply_text("За последние 30 дней продаж нет")
-        return
-    qty, revenue, tax, profit = row
-    text = (
-        f"За последние 30 дней:\n\n"
-        f"Продано штук: {int(qty)}\n"
-        f"Выручка: {revenue:.0f} ₽\n"
-        f"Налог 6%: {tax:.0f} ₽\n"
-        f"Чистая прибыль: {profit:.0f} ₽"
-    )
+    text = format_stats_text("За последние 30 дней", "За последние 30 дней продаж нет", days=30)
     await update.message.reply_text(text)
 
 
@@ -212,6 +250,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("add", add_command))
     app.add_handler(CommandHandler("products", products_command))
+    app.add_handler(CommandHandler("undo", undo_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("week", week_command))
     app.add_handler(CommandHandler("month", month_command))
