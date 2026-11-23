@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#121418" />
+  <title>Учёт продаж — Томаситко</title>
+  <style>
+    :root {
+      --bg: #121418;
+      --card: #1b1f26;
+      --card-2: #242933;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --accent: #3b82f6;
+      --green: #10b981;
+      --red: #ef4444;
+      --border: #2e3440;
+    }
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body {
+      margin: 0; padding: 14px 14px 40px;
+      background: var(--bg); color: var(--text);
+    }
+    h1 { font-size: 20px; margin: 4px 0 14px; display: flex; justify-content: space-between; align-items: center; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+    .tab {
+      flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 10px;
+      background: var(--card); color: var(--muted); font-weight: 600; font-size: 14px;
+    }
+    .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 14px; margin-bottom: 12px;
+    }
+    .card-title { font-size: 15px; font-weight: 700; margin: 0 0 10px; color: #e5e7eb; }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input, select {
+      width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--border);
+      background: var(--card-2); color: var(--text); font-size: 16px; margin-bottom: 10px;
+    }
+    .row { display: flex; gap: 8px; }
+    .row > div { flex: 1; }
+    button {
+      width: 100%; padding: 12px; border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 700; cursor: pointer;
+    }
+    .btn-primary { background: var(--green); color: #052e16; }
+    .btn-blue { background: var(--accent); color: #fff; }
+    .btn-danger { background: rgba(239, 68, 68, 0.16); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.35); }
+    .btn-ghost { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+    .stat-box { background: var(--card-2); padding: 10px; border-radius: 10px; }
+    .stat-label { font-size: 12px; color: var(--muted); }
+    .stat-val { font-size: 18px; font-weight: 800; margin-top: 2px; }
+    .profit { color: #34d399; }
+    .tax { color: #fbbf24; }
+    .list-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid var(--border); gap: 8px;
+    }
+    .list-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .item-main { font-weight: 600; font-size: 14px; }
+    .item-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .pill-btn {
+      width: auto; padding: 6px 10px; font-size: 12px; border-radius: 8px;
+    }
+    .period-bar { display: flex; gap: 6px; margin-bottom: 10px; }
+    .period-btn {
+      flex: 1; padding: 7px; font-size: 12px; border-radius: 8px;
+      background: var(--card-2); color: var(--muted); border: 1px solid var(--border);
+    }
+    .period-btn.active { background: #374151; color: #fff; border-color: #6b7280; }
+    .toast {
+      position: fixed; bottom: 16px; left: 14px; right: 14px;
+      background: #10b981; color: #052e16; font-weight: 700;
+      padding: 12px 14px; border-radius: 12px; text-align: center;
+      display: none; z-index: 99; box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <h1>Учёт продаж</h1>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('sell', this)">Продажа</button>
+    <button class="tab" onclick="switchTab('stats', this)">Статистика</button>
+    <button class="tab" onclick="switchTab('products', this)">Товары</button>
+  </div>
+
+  <!-- ВКЛАДКА ПРОДАЖИ -->
+  <div id="tab-sell">
+    <div class="card">
+      <div class="card-title">Записать продажу</div>
+      <label>Товар</label>
+      <select id="sell-product"></select>
+
+      <div class="row">
+        <div>
+          <label>Количество (шт)</label>
+          <input type="number" id="sell-qty" value="1" min="1" step="1" />
+        </div>
+        <div>
+          <label>Ставка налога (%)</label>
+          <input type="number" id="tax-rate" value="6" min="0" max="100" step="0.5" onchange="saveTaxRate()" />
+        </div>
+      </div>
+
+      <button class="btn-primary" onclick="recordSale()">+ Записать продажу</button>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div class="card-title" style="margin:0;">Последние продажи</div>
+        <button class="btn-danger pill-btn" onclick="undoLastSale()">Отменить последнюю</button>
+      </div>
+      <div id="recent-sales"></div>
+    </div>
+  </div>
+
+  <!-- ВКЛАДКА СТАТИСТИКИ -->
+  <div id="tab-stats" class="hidden">
+    <div class="card">
+      <div class="period-bar">
+        <button class="period-btn active" onclick="setPeriod('all', this)">Всё время</button>
+        <button class="period-btn" onclick="setPeriod('7', this)">7 дней</button>
+        <button class="period-btn" onclick="setPeriod('30', this)">30 дней</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Продано штук</div>
+          <div class="stat-val" id="st-qty">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Выручка</div>
+          <div class="stat-val" id="st-rev">0 ₽</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Налог</div>
+          <div class="stat-val tax" id="st-tax">0 ₽</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Чистая прибыль</div>
+          <div class="stat-val profit" id="st-profit">0 ₽</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">По товарам</div>
+      <div id="stats-by-product"></div>
+    </div>
+  </div>
+
+  <!-- ВКЛАДКА ТОВАРОВ И БЭКАПА -->
+  <div id="tab-products" class="hidden">
+    <div class="card">
+      <div class="card-title">Добавить или обновить товар</div>
+      <label>Название</label>
+      <input type="text" id="prod-name" placeholder="Например: Томаситко_худи" />
+      <div class="row">
+        <div>
+          <label>Себестоимость (₽)</label>
+          <input type="number" id="prod-cost" placeholder="500" min="0" step="1" />
+        </div>
+        <div>
+          <label>Цена продажи (₽)</label>
+          <input type="number" id="prod-price" placeholder="990" min="0" step="1" />
+        </div>
+      </div>
+      <button class="btn-blue" onclick="addOrUpdateProduct()">Сохранить товар</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Список товаров</div>
+      <div id="products-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Резервная копия данных</div>
+      <div class="row">
+        <div><button class="btn-ghost" onclick="exportBackup()">Скачать копию</button></div>
+        <div><button class="btn-ghost" onclick="document.getElementById('import-file').click()">Загрузить копию</button></div>
+      </div>
+      <input type="file" id="import-file" accept=".json" class="hidden" onchange="importBackup(event)" />
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const STORAGE_KEY = 'ffl_sales_app_v1';
+    const DEFAULT_PRODUCTS = [
+      { name: 'Томаситко_костюм', cost: 445, price: 950 },
+      { name: 'Шар', cost: 150, price: 800 },
+      { name: 'Кальцифер', cost: 65, price: 250 },
+      { name: 'Подставка_кристал', cost: 100, price: 320 },
+      { name: 'Подставка_гта6', cost: 165, price: 320 },
+      { name: 'Томаситко_худи', cost: 500, price: 990 }
+    ];
+
+    let state = loadState();
+    let currentPeriod = 'all';
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch (e) {}
+      return { products: DEFAULT_PRODUCTS, sales: [], taxRate: 6 };
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.style.display = 'block';
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => { el.style.display = 'none'; }, 2400);
+    }
+
+    function switchTab(tab, btn) {
+      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      ['sell', 'stats', 'products'].forEach(t => {
+        document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab);
+      });
+      renderAll();
+    }
+
+    function saveTaxRate() {
+      const val = parseFloat(document.getElementById('tax-rate').value);
+      state.taxRate = isNaN(val) ? 6 : val;
+      saveState();
+    }
+
+    function recordSale() {
+      const idx = document.getElementById('sell-product').value;
+      const qty = parseInt(document.getElementById('sell-qty').value, 10) || 1;
+      const prod = state.products[idx];
+      if (!prod || qty < 1) return;
+
+      const revenue = prod.price * qty;
+      const totalCost = prod.cost * qty;
+      const tax = revenue * (state.taxRate / 100);
+      const profit = revenue - tax - totalCost;
+
+      state.sales.unshift({
+        id: Date.now(),
+        name: prod.name,
+        qty,
+        revenue,
+        tax,
+        profit,
+        ts: Date.now()
+      });
+      saveState();
+      document.getElementById('sell-qty').value = 1;
+      renderAll();
+      showToast(`Записано: ${prod.name} × ${qty} (+${Math.round(profit)} ₽)`);
+    }
+
+    function undoLastSale() {
+      if (!state.sales.length) {
+        showToast('Нет продаж для отмены');
+        return;
+      }
+      const removed = state.sales.shift();
+      saveState();
+      renderAll();
+      showToast(`Отменено: ${removed.name} × ${removed.qty}`);
+    }
+
+    function addOrUpdateProduct() {
+      const name = document.getElementById('prod-name').value.trim();
+      const cost = parseFloat(document.getElementById('prod-cost').value);
+      const price = parseFloat(document.getElementById('prod-price').value);
+      if (!name || isNaN(cost) || isNaN(price)) {
+        showToast('Заполни название, себестоимость и цену');
+        return;
+      }
+      const existing = state.products.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+      if (existing >= 0) {
+        state.products[existing] = { name, cost, price };
+      } else {
+        state.products.push({ name, cost, price });
+      }
+      saveState();
+      document.getElementById('prod-name').value = '';
+      document.getElementById('prod-cost').value = '';
+      document.getElementById('prod-price').value = '';
+      renderAll();
+      showToast(`Товар «${name}» сохранён`);
+    }
+
+    function deleteProduct(index) {
+      const removed = state.products.splice(index, 1)[0];
+      saveState();
+      renderAll();
+      if (removed) showToast(`Удалён: ${removed.name}`);
+    }
+
+    function setPeriod(period, btn) {
+      currentPeriod = period;
+      document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderStats();
+    }
+
+    function renderStats() {
+      const now = Date.now();
+      const filtered = state.sales.filter(s => {
+        if (currentPeriod === 'all') return true;
+        const days = parseInt(currentPeriod, 10);
+        return (now - s.ts) <= days * 24 * 60 * 60 * 1000;
+      });
+
+      let qty = 0, rev = 0, tax = 0, profit = 0;
+      const byProd = {};
+
+      filtered.forEach(s => {
+        qty += s.qty;
+        rev += s.revenue;
+        tax += s.tax;
+        profit += s.profit;
+        if (!byProd[s.name]) byProd[s.name] = { qty: 0, rev: 0, profit: 0 };
+        byProd[s.name].qty += s.qty;
+        byProd[s.name].rev += s.revenue;
+        byProd[s.name].profit += s.profit;
+      });
+
+      document.getElementById('st-qty').textContent = qty;
+      document.getElementById('st-rev').textContent = `${Math.round(rev)} ₽`;
+      document.getElementById('st-tax').textContent = `${Math.round(tax)} ₽`;
+      document.getElementById('st-profit').textContent = `${Math.round(profit)} ₽`;
+
+      const byProdEl = document.getElementById('stats-by-product');
+      const entries = Object.entries(byProd);
+      if (!entries.length) {
+        byProdEl.innerHTML = '<div class="item-sub">Продаж за этот период пока нет</div>';
+        return;
+      }
+      byProdEl.innerHTML = entries.map(([name, d]) => `
+        <div class="list-item">
+          <div>
+            <div class="item-main">${name} (${d.qty} шт)</div>
+            <div class="item-sub">Выручка: ${Math.round(d.rev)} ₽</div>
+          </div>
+          <div class="item-main profit">+${Math.round(d.profit)} ₽</div>
+        </div>
+      `).join('');
+    }
+
+    function renderAll() {
+      document.getElementById('tax-rate').value = state.taxRate;
+
+      const select = document.getElementById('sell-product');
+      select.innerHTML = state.products.map((p, i) =>
+        `<option value="${i}">${p.name} — ${p.price} ₽</option>`
+      ).join('');
+
+      const recentEl = document.getElementById('recent-sales');
+      if (!state.sales.length) {
+        recentEl.innerHTML = '<div class="item-sub">Продаж пока нет</div>';
+      } else {
+        recentEl.innerHTML = state.sales.slice(0, 10).map(s => {
+          const dt = new Date(s.ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+          return `
+            <div class="list-item">
+              <div>
+                <div class="item-main">${s.name} × ${s.qty}</div>
+                <div class="item-sub">${dt} · Выручка ${Math.round(s.revenue)} ₽ · Налог ${Math.round(s.tax)} ₽</div>
+              </div>
+              <div class="item-main profit">+${Math.round(s.profit)} ₽</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      const prodEl = document.getElementById('products-list');
+      prodEl.innerHTML = state.products.map((p, i) => `
+        <div class="list-item">
+          <div>
+            <div class="item-main">${p.name}</div>
+            <div class="item-sub">Себест.: ${p.cost} ₽ → Цена: ${p.price} ₽</div>
+          </div>
+          <button class="btn-danger pill-btn" onclick="deleteProduct(${i})">Удалить</button>
+        </div>
+      `).join('');
+
+      renderStats();
+    }
+
+    function exportBackup() {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `sales_backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+    }
+
+    function importBackup(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result);
+          if (Array.isArray(parsed.products) && Array.isArray(parsed.sales)) {
+            state = parsed;
+            saveState();
+            renderAll();
+            showToast('Резервная копия восстановлена');
+          } else {
+            showToast('Неверный формат файла');
+          }
+        } catch (err) {
+          showToast('Ошибка чтения файла');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    renderAll();
+  </script>
+</body>
+</html>
