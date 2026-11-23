@@ -1,11 +1,24 @@
 import os
 import asyncio
 import sqlite3
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-TOKEN = os.getenv("BOT_TOKEN")  # токен будет браться из переменной окружения
+TOKEN = os.getenv("BOT_TOKEN") # токен будет браться из переменной окружения
+
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, format, *args):
+        pass
+
 
 # --- База данных ---
 def init_db():
@@ -14,18 +27,20 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS products
                  (id INTEGER PRIMARY KEY, name TEXT UNIQUE, cost REAL, price REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS sales
-                 (id INTEGER PRIMARY KEY, product_name TEXT, qty INTEGER, 
+                 (id INTEGER PRIMARY KEY, product_name TEXT, qty INTEGER,
                   revenue REAL, cost REAL, tax REAL, profit REAL, date TEXT)''')
     conn.commit()
     conn.close()
 
+
 def add_product(name, cost, price):
     conn = sqlite3.connect("sales.db")
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO products (name, cost, price) VALUES (?, ?, ?)", 
+    c.execute("INSERT OR REPLACE INTO products (name, cost, price) VALUES (?, ?, ?)",
               (name.lower(), cost, price))
     conn.commit()
     conn.close()
+
 
 def get_product(name):
     conn = sqlite3.connect("sales.db")
@@ -35,6 +50,7 @@ def get_product(name):
     conn.close()
     return row
 
+
 def add_sale(product_name, qty, revenue, cost, tax, profit):
     conn = sqlite3.connect("sales.db")
     c = conn.cursor()
@@ -42,6 +58,7 @@ def add_sale(product_name, qty, revenue, cost, tax, profit):
               (product_name, qty, revenue, cost, tax, profit, datetime.now().strftime("%Y-%m-%d %H:%M")))
     conn.commit()
     conn.close()
+
 
 def get_stats(days=None):
     conn = sqlite3.connect("sales.db")
@@ -54,6 +71,7 @@ def get_stats(days=None):
     row = c.fetchone()
     conn.close()
     return row
+
 
 # --- Команды ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -71,6 +89,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text)
 
+
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         args = context.args
@@ -82,8 +101,9 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         price = float(args[2])
         add_product(name, cost, price)
         await update.message.reply_text(f"Товар «{name}» добавлен.\nСебестоимость: {cost} ₽\nЦена: {price} ₽")
-    except:
+    except Exception:
         await update.message.reply_text("Ошибка. Проверь формат: /add Название себестоимость цена")
+
 
 async def products_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect("sales.db")
@@ -98,6 +118,7 @@ async def products_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for name, cost, price in rows:
         text += f"• {name.capitalize()} — {cost} ₽ → {price} ₽\n"
     await update.message.reply_text(text)
+
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = get_stats()
@@ -114,6 +135,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text)
 
+
 async def week_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = get_stats(7)
     if not row or row[0] is None:
@@ -128,6 +150,7 @@ async def week_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Чистая прибыль: {profit:.0f} ₽"
     )
     await update.message.reply_text(text)
+
 
 async def month_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = get_stats(30)
@@ -144,34 +167,35 @@ async def month_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text)
 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if not text.startswith("+"):
         return
-    
+
     parts = text[1:].strip().split()
     if not parts:
         await update.message.reply_text("Напиши: + Название или + Название 2")
         return
-    
+
     name = parts[0]
     qty = 1
     if len(parts) > 1 and parts[1].isdigit():
         qty = int(parts[1])
-    
+
     product = get_product(name)
     if not product:
         await update.message.reply_text(f"Товар «{name}» не найден. Сначала добавь его через /add")
         return
-    
+
     _, cost, price = product
     revenue = price * qty
     total_cost = cost * qty
     tax = revenue * 0.06
     profit = revenue - tax - total_cost
-    
+
     add_sale(name, qty, revenue, total_cost, tax, profit)
-    
+
     await update.message.reply_text(
         f"Продажа записана!\n\n"
         f"{name.capitalize()} × {qty}\n"
@@ -180,10 +204,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Прибыль: {profit:.0f} ₽"
     )
 
+
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
-    
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("add", add_command))
     app.add_handler(CommandHandler("products", products_command))
@@ -191,11 +216,17 @@ def main():
     app.add_handler(CommandHandler("week", week_command))
     app.add_handler(CommandHandler("month", month_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    port = int(os.environ.get("PORT", 10000))
+    threading.Thread(
+        target=lambda: HTTPServer(("0.0.0.0", port), HealthHandler).serve_forever(),
+        daemon=True
+    ).start()
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     print("Бот запущен...")
     app.run_polling()
-    
 
 
 if __name__ == "__main__":
